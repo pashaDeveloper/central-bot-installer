@@ -57,18 +57,9 @@ prepare_key() {
 }
 
 download_source() {
-  local repository branch subdirectory source_dir file
-  printf '%s\n' 'Enter the Git repository containing Central Bot (HTTPS or SSH).' \
-    'For GitHub SSH repositories, the installer generates and displays a read-only Deploy Key. Do not put a token in the URL.'
-  prompt repository 'Repository URL [git@github.com:pashaDeveloper/central-bot.git]: '
-  repository=${repository:-git@github.com:pashaDeveloper/central-bot.git}
-  [[ "$repository" =~ ^https://[A-Za-z0-9.-]+/[^[:space:]]+$ || "$repository" =~ ^git@[A-Za-z0-9.-]+:[A-Za-z0-9_./-]+$ ]] || fail 'Expected an HTTPS Git URL without credentials, or git@host:owner/repository.git.'
-  prompt branch 'Branch or tag [main]: '
-  branch=${branch:-main}
-  [[ "$branch" != -* ]] && git check-ref-format --branch "$branch" >/dev/null || fail 'Invalid branch or tag.'
-  prompt subdirectory 'Bot directory within repository [. for standalone repository]: '
-  subdirectory=${subdirectory:-.}
-  [[ "$subdirectory" == . || "$subdirectory" =~ ^[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$ ]] || fail 'Invalid relative source directory.'
+  local repository='git@github.com:pashaDeveloper/central-bot.git'
+  local branch='main' subdirectory='.' source_dir file
+  printf 'Downloading Central Bot from %s (branch: %s)\n' "$repository" "$branch"
   prepare_key "$repository"
   download_dir=$(mktemp -d /tmp/central-bot-download.XXXXXX)
   GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch "$branch" -- "$repository" "$download_dir/repository"
