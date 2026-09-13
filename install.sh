@@ -74,19 +74,84 @@ download_source() {
   printf '%s\n' 'Source installed in /opt/central-bot. Configuring the bot...'
 }
 
-main() {
-  [[ $(id -u) == 0 ]] || fail 'Run with sudo bash install.sh (or as root).'
-  if [[ ! -t 0 ]]; then exec </dev/tty; fi
-  download_dir=''
-  trap 'if [[ "$download_dir" == /tmp/central-bot-download.* && -d "$download_dir" ]]; then rm -rf -- "$download_dir"; fi' EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
+require_bot() {
+  [[ -f /opt/central-bot/compose.yml && -f /opt/central-bot/.env && ! -L /opt/central-bot ]] || fail 'Install Central Bot first (option 1).'
+}
+
+install_bot() {
+  if [[ -f /opt/central-bot/.env ]]; then
+    printf 'Central Bot is already installed. Use Edit (2) or Update (4).\n'
+    return
+  fi
   install_dependencies
   download_source
   bash /opt/central-bot/configure.sh
-  if [[ -f /var/run/reboot-required ]]; then
-    printf '%s\n' 'System updates require a reboot. Reboot the server when convenient.'
-  fi
+}
+
+edit_bot() {
+  require_bot
+  printf 'To change settings, answer n when asked to keep existing settings.\n'
+  bash /opt/central-bot/configure.sh
+}
+
+update_bot() {
+  require_bot
+  local backup
+  install -d -m 0700 /etc/central-bot-installer/backups
+  backup=$(mktemp /etc/central-bot-installer/backups/source.XXXXXXXX.tar.gz)
+  tar --exclude='./node_modules' --exclude='./.git' -czf "$backup" -C /opt/central-bot .
+  printf 'Current source and settings backed up to %s\n' "$backup"
+  download_source
+  cd /opt/central-bot
+  docker compose --env-file .env -f compose.yml config --quiet
+  docker compose --env-file .env -f compose.yml up -d --build --wait --wait-timeout 180
+}
+
+remove_bot() {
+  require_bot
+  local confirmation
+  prompt confirmation 'Remove Central Bot containers, source and settings? Type REMOVE: '
+  [[ "$confirmation" == REMOVE ]] || { printf 'Cancelled.\n'; return; }
+  [[ ! -L /opt/central-bot && $(readlink -f /opt/central-bot) == /opt/central-bot ]] || fail 'Unexpected installation path.'
+  cd /opt/central-bot
+  docker compose --env-file .env -f compose.yml down --remove-orphans
+  cd /
+  rm -rf -- /opt/central-bot
+  printf 'Central Bot removed. MongoDB, Cloudinary, GitHub Deploy Key and local backups were kept.\n'
+}
+
+run_action() {
+  local result
+  set +e
+  (
+    set -Eeuo pipefail
+    download_dir=''
+    trap 'if [[ "$download_dir" == /tmp/central-bot-download.* && -d "$download_dir" ]]; then rm -rf -- "$download_dir"; fi' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    "$1"
+  )
+  result=$?
+  set -e
+  if (( result != 0 )); then printf 'Action failed (exit %s). Review the message above.\n' "$result"; fi
+}
+
+main() {
+  [[ $(id -u) == 0 ]] || fail 'Run with sudo bash install.sh (or as root).'
+  if [[ ! -t 0 ]]; then exec </dev/tty; fi
+  local choice
+  while true; do
+    printf '\nCentral Bot\n1. Install\n2. Edit\n3. Remove\n4. Update from GitHub\nq) Exit\n'
+    prompt choice 'Select an option: '
+    case "$choice" in
+      1) run_action install_bot ;;
+      2) run_action edit_bot ;;
+      3) run_action remove_bot ;;
+      4) run_action update_bot ;;
+      q|Q) return ;;
+      *) printf 'Invalid option.\n' ;;
+    esac
+  done
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi
