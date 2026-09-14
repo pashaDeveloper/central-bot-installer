@@ -102,6 +102,10 @@ update_bot() {
   tar --exclude='./node_modules' --exclude='./.git' -czf "$backup" -C /opt/${bot_name:-central-bot} .
   printf 'Current source and settings backed up to %s\n' "$backup"
   download_source
+  if [[ "${bot_name:-central-bot}" == customer-bot ]]; then
+    bash /opt/customer-bot/configure.sh
+    return
+  fi
   cd /opt/${bot_name:-central-bot}
   docker compose --env-file .env -f compose.yml config --quiet
   docker compose --env-file .env -f compose.yml up -d --build --wait --wait-timeout 180
