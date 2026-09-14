@@ -1,3 +1,5 @@
+> Shared installer: 1 Install admin bot; 2 Install customer bot; 3 Manage admin bot; 4 Manage customer bot. Management submenu: 1 Settings; 2 Update; 3 Remove. Customer source: https://github.com/pashaDeveloper/customer-bot; installation: `/opt/customer-bot`. This replaces the old menu numbering below.
+
 # Central Bot installer
 
 نصاب عمومی برای دریافت و نصب سورس خصوصی Central Bot روی Ubuntu و Debian دارای systemd.

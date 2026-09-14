@@ -37,7 +37,7 @@ install_dependencies() {
 }
 
 prepare_key() {
-  local repository=$1 config_dir=${2:-/etc/central-bot-installer} key_file pubkey registered
+  local repository=$1 config_dir=${2:-/etc/${bot_name:-central-bot}-installer} key_file pubkey registered
   [[ "$repository" =~ ^git@github\.com:([A-Za-z0-9_-]+/[A-Za-z0-9_.-]+)$ ]] || return 0
   local github_repository=${BASH_REMATCH[1]%.git}
   install -d -m 0700 "$config_dir"
@@ -57,9 +57,9 @@ prepare_key() {
 }
 
 download_source() {
-  local repository='git@github.com:pashaDeveloper/central-bot.git'
+  local repository="git@github.com:pashaDeveloper/${bot_name:-central-bot}.git"
   local branch='main' subdirectory='.' source_dir file
-  printf 'Downloading Central Bot from %s (branch: %s)\n' "$repository" "$branch"
+  printf 'Downloading bot from %s (branch: %s)\n' "$repository" "$branch"
   prepare_key "$repository"
   download_dir=$(mktemp -d /tmp/central-bot-download.XXXXXX)
   GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch "$branch" -- "$repository" "$download_dir/repository"
@@ -67,42 +67,42 @@ download_source() {
   for file in compose.yml Dockerfile server.mjs configure.sh package.json package-lock.json LICENSE; do
     [[ -f "$source_dir/$file" && ! -L "$source_dir/$file" ]] || fail "Downloaded repository is missing $file. Publish the complete updated Central Bot source and select the correct subdirectory."
   done
-  [[ ! -L /opt/central-bot ]] || fail '/opt/central-bot must not be a symbolic link.'
-  install -d -m 0700 /opt/central-bot
+  [[ ! -L /opt/${bot_name:-central-bot} ]] || fail '/opt/${bot_name:-central-bot} must not be a symbolic link.'
+  install -d -m 0700 /opt/${bot_name:-central-bot}
   rsync -a --exclude='.git' --exclude='.env' --exclude='.env.*' --exclude='node_modules' \
-    "$source_dir/" /opt/central-bot/
-  printf '%s\n' 'Source installed in /opt/central-bot. Configuring the bot...'
+    "$source_dir/" /opt/${bot_name:-central-bot}/
+  printf '%s\n' "Source installed in /opt/${bot_name:-central-bot}. Configuring the bot..."
 }
 
 require_bot() {
-  [[ -f /opt/central-bot/compose.yml && -f /opt/central-bot/.env && ! -L /opt/central-bot ]] || fail 'Install Central Bot first (option 1).'
+  [[ -f /opt/${bot_name:-central-bot}/compose.yml && -f /opt/${bot_name:-central-bot}/.env && ! -L /opt/${bot_name:-central-bot} ]] || fail 'Install the selected bot first.'
 }
 
 install_bot() {
-  if [[ -f /opt/central-bot/.env ]]; then
-    printf 'Central Bot is already installed. Use Edit (2) or Update (4).\n'
+  if [[ -f /opt/${bot_name:-central-bot}/.env ]]; then
+    printf 'Bot is already installed. Use the management menu.\n'
     return
   fi
   install_dependencies
   download_source
-  bash /opt/central-bot/configure.sh
+  bash /opt/${bot_name:-central-bot}/configure.sh
 }
 
 edit_bot() {
   require_bot
   printf 'To change settings, answer n when asked to keep existing settings.\n'
-  bash /opt/central-bot/configure.sh
+  bash /opt/${bot_name:-central-bot}/configure.sh
 }
 
 update_bot() {
   require_bot
   local backup
-  install -d -m 0700 /etc/central-bot-installer/backups
-  backup=$(mktemp /etc/central-bot-installer/backups/source.XXXXXXXX.tar.gz)
-  tar --exclude='./node_modules' --exclude='./.git' -czf "$backup" -C /opt/central-bot .
+  install -d -m 0700 /etc/${bot_name:-central-bot}-installer/backups
+  backup=$(mktemp /etc/${bot_name:-central-bot}-installer/backups/source.XXXXXXXX.tar.gz)
+  tar --exclude='./node_modules' --exclude='./.git' -czf "$backup" -C /opt/${bot_name:-central-bot} .
   printf 'Current source and settings backed up to %s\n' "$backup"
   download_source
-  cd /opt/central-bot
+  cd /opt/${bot_name:-central-bot}
   docker compose --env-file .env -f compose.yml config --quiet
   docker compose --env-file .env -f compose.yml up -d --build --wait --wait-timeout 180
 }
@@ -110,14 +110,14 @@ update_bot() {
 remove_bot() {
   require_bot
   local confirmation
-  prompt confirmation 'Remove Central Bot containers, source and settings? Type REMOVE: '
+  prompt confirmation 'Remove selected bot containers, source and settings? Type REMOVE: '
   [[ "$confirmation" == REMOVE ]] || { printf 'Cancelled.\n'; return; }
-  [[ ! -L /opt/central-bot && $(readlink -f /opt/central-bot) == /opt/central-bot ]] || fail 'Unexpected installation path.'
-  cd /opt/central-bot
+  [[ ! -L /opt/${bot_name:-central-bot} && $(readlink -f /opt/${bot_name:-central-bot}) == /opt/${bot_name:-central-bot} ]] || fail 'Unexpected installation path.'
+  cd /opt/${bot_name:-central-bot}
   docker compose --env-file .env -f compose.yml down --remove-orphans
   cd /
-  rm -rf -- /opt/central-bot
-  printf 'Central Bot removed. MongoDB, Cloudinary, GitHub Deploy Key and local backups were kept.\n'
+  rm -rf -- /opt/${bot_name:-central-bot}
+  printf 'Selected bot removed. External services, Docker volumes, Deploy Key and backups were kept.\n'
 }
 
 run_action() {
@@ -136,18 +136,31 @@ run_action() {
   if (( result != 0 )); then printf 'Action failed (exit %s). Review the message above.\n' "$result"; fi
 }
 
+manage_bot() {
+  local action
+  printf '\n%s\n1. Edit settings\n2. Update from GitHub\n3. Remove\nb. Back\n' "$bot_name"
+  prompt action 'Select an option: '
+  case "$action" in
+    1) run_action edit_bot ;;
+    2) run_action update_bot ;;
+    3) run_action remove_bot ;;
+    b|B) return ;;
+    *) printf 'Invalid option.\n' ;;
+  esac
+}
+
 main() {
   [[ $(id -u) == 0 ]] || fail 'Run with sudo bash install.sh (or as root).'
   if [[ ! -t 0 ]]; then exec </dev/tty; fi
   local choice
   while true; do
-    printf '\nCentral Bot\n1. Install\n2. Edit\n3. Remove\n4. Update from GitHub\nq) Exit\n'
+    printf '\nBot Installer\n1. Install admin bot\n2. Install customer bot\n3. Manage admin bot\n4. Manage customer bot\nq) Exit\n'
     prompt choice 'Select an option: '
     case "$choice" in
-      1) run_action install_bot ;;
-      2) run_action edit_bot ;;
-      3) run_action remove_bot ;;
-      4) run_action update_bot ;;
+      1) bot_name=central-bot; run_action install_bot ;;
+      2) bot_name=customer-bot; run_action install_bot ;;
+      3) bot_name=central-bot; manage_bot ;;
+      4) bot_name=customer-bot; manage_bot ;;
       q|Q) return ;;
       *) printf 'Invalid option.\n' ;;
     esac
